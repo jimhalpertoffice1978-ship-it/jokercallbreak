@@ -165,6 +165,104 @@ test('spades led: follow with a higher spade if you can, otherwise any spade, ot
   assert.equal(legalCards(hand('H3', 'D4'), plays(['a', 'S7'])).length, 2);
 });
 
+// ---------- partnership: you never have to overtrump your own partner
+
+const ranks = (cards) => cards.map((x) => `${x.suit}${x.rank}`).sort();
+
+test('partner is winning with a spade: any spade is allowed, including a lower one', () => {
+  const h = hand('S12', 'S3', 'D4');
+  const t = plays(['b', 'H7'], ['a', 'S9']); // 'a' is my partner and is winning with the nine of spades
+  assert.deepEqual(ranks(legalCards(h, t, { partnerId: 'a' })), ['S12', 'S3']);
+  assert.deepEqual(ranks(legalCards(h, t, { partnerId: 'z' })), ['S12']); // an opponent winning: overtrump still forced
+  assert.deepEqual(ranks(legalCards(h, t)), ['S12']); // no teams (standard mode): unchanged
+});
+
+test('partner is winning but none of my spades is higher: play anything, as before', () => {
+  const h = hand('S3', 'S5', 'D4');
+  const t = plays(['b', 'H7'], ['a', 'S9']);
+  assert.equal(legalCards(h, t, { partnerId: 'a' }).length, 3);
+});
+
+test('spades led and my partner is winning: any spade; if an opponent is winning I must beat it', () => {
+  const h = hand('S5', 'S12', 'H3');
+  assert.deepEqual(ranks(legalCards(h, plays(['a', 'S9']), { partnerId: 'a' })), ['S12', 'S5']);
+  assert.deepEqual(ranks(legalCards(h, plays(['b', 'S9']), { partnerId: 'a' })), ['S12']);
+  // my partner played a spade but an opponent has overtrumped it: not winning any more
+  assert.deepEqual(ranks(legalCards(h, plays(['a', 'S7'], ['b', 'S9']), { partnerId: 'a' })), ['S12']);
+});
+
+test('the exception never lets you trump while you still hold the led suit', () => {
+  const h = hand('H5', 'S3');
+  const t = plays(['b', 'H7'], ['a', 'S2']);
+  assert.deepEqual(ranks(legalCards(h, t, { partnerId: 'a' })), ['H5']);
+});
+
+test('a partner winning with a non-spade does not change the duty to trump', () => {
+  const h = hand('S3', 'D4');
+  const t = plays(['b', 'H7'], ['a', 'H12']);
+  assert.deepEqual(ranks(legalCards(h, t, { partnerId: 'a' })), ['S3']);
+});
+
+test('in a real game a lower spade is accepted for a partner\'s trump, and refused in standard mode', () => {
+  const build = (mode) => {
+    let s = bidAll(game(mode, 2, 0), [1, 1, 1, 1]); // dealer p0, so p1 leads and p2, p3, p0 follow
+    s.players[1].hand = hand('H7', 'H2');
+    s.players[2].hand = hand('S9', 'D2'); // void in hearts: must trump
+    s.players[3].hand = hand('D4', 'D5'); // void in hearts and spades: discards
+    s.players[0].hand = hand('S12', 'S3', 'C5');
+    s = act(applyPlay(s, 'p1', s.players[1].hand[0].id));
+    s = act(applyPlay(s, 'p2', s.players[2].hand[0].id));
+    s = act(applyPlay(s, 'p3', s.players[3].hand[0].id));
+    return s;
+  };
+  const team = build('team4'); // p2 and p0 are partners; p2 is winning with the nine of spades
+  const low = team.players[0].hand.find((x) => x.rank === 3);
+  assert.equal(legalCardIds(team, 'p0').length, 2);
+  assert.equal(applyPlay(team, 'p0', low.id).ok, true);
+  assert.equal(applyPlay(team, 'p0', team.players[0].hand.find((x) => x.suit === 'C').id).ok, false); // still must play a spade
+  const v = viewFor(team, 'p0');
+  assert.equal(v.trickWinnerId, 'p2');
+  assert.equal(v.you.partnerId, 'p2');
+  const solo = build('solo4');
+  const lowSolo = solo.players[0].hand.find((x) => x.rank === 3);
+  const r = applyPlay(solo, 'p0', lowSolo.id);
+  assert.equal(r.ok, false);
+  assert.match(r.error, /not allowed/);
+  assert.equal(viewFor(solo, 'p0').you.partnerId, null);
+});
+
+// ---------- every deal gives each player at least one spade
+
+test('every player holds at least one spade in every mode, over many deals', () => {
+  for (const mode of Object.keys(MODES)) {
+    for (let seed = 1; seed <= 400; seed++) {
+      const s = game(mode, seed);
+      for (const p of s.players) assert.ok(p.hand.some((x) => x.suit === 'S'), `${mode} seed ${seed}: ${p.id} has no spade`);
+    }
+  }
+});
+
+test('a deal where someone has no spade is reshuffled and checked again', () => {
+  // The first shuffle leaves the deck in order (all spades first), so only the first player would hold spades.
+  let calls = 0;
+  const real = seeded(77);
+  const rng = (max) => (calls++ < 51 ? max - 1 : real(max));
+  const s = createGame(people(4), { mode: 'solo4', rng, dealerIdx: 0 });
+  assert.ok(calls > 51, 'the cards were shuffled again');
+  for (const p of s.players) assert.ok(p.hand.some((x) => x.suit === 'S'));
+  assert.deepEqual(countCards(s), { total: 52, unique: 52 });
+});
+
+test('later rounds are checked too, and an impossible deal fails loudly rather than looping forever', () => {
+  const s = game('team8', 5, 0);
+  const end = { ...s, phase: 'roundEnd' };
+  for (let r = 0; r < 30; r++) {
+    const next = act(nextRound(end, seeded(900 + r)));
+    for (const p of next.players) assert.ok(p.hand.some((x) => x.suit === 'S'));
+  }
+  assert.throws(() => createGame(people(4), { mode: 'solo4', rng: (max) => max - 1, dealerIdx: 0 }), /spade/);
+});
+
 // ---------- who wins a trick
 
 test('highest card of the led suit wins when nobody trumps', () => {
@@ -402,9 +500,9 @@ test('simulation: 150 random games in each mode always finish cleanly', () => {
           const amount = rng(3) === 0 ? 1 + rng(13) : autoBid(s, p.id);
           s = act(applyBid(s, p.id, amount));
         } else {
-          const legal = legalCards(p.hand, s.trick);
-          assert.ok(legal.length > 0, 'there is always a legal card');
-          const pick = rng(4) === 0 ? legal[rng(legal.length)].id : autoPlay(s, p.id);
+          const legalIds = legalCardIds(s, p.id);
+          assert.ok(legalIds.length > 0, 'there is always a legal card');
+          const pick = rng(4) === 0 ? legalIds[rng(legalIds.length)] : autoPlay(s, p.id);
           s = act(applyPlay(s, p.id, pick));
           const cc = countCards(s);
           assert.equal(cc.total, cc.unique, 'no duplicate card ids');

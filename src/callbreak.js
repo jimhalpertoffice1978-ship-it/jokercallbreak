@@ -43,13 +43,23 @@ export function shuffle(cards, rng = defaultRng) {
   return a;
 }
 
+// Deals 13 cards to every player. A deal in which any player has no spade is thrown away and
+// the cards are shuffled and dealt again, until every player holds at least one spade.
+const MAX_REDEALS = 10000;
 function dealRound(s, rng) {
-  const deck = shuffle(buildDeck(MODES[s.mode].decks), rng);
-  s.players.forEach((p, i) => {
-    p.hand = deck.slice(i * HAND_SIZE, (i + 1) * HAND_SIZE);
-    p.bid = null;
-    p.tricks = 0;
-  });
+  for (let attempt = 0; attempt < MAX_REDEALS; attempt++) {
+    const deck = shuffle(buildDeck(MODES[s.mode].decks), rng);
+    const hands = s.players.map((_, i) => deck.slice(i * HAND_SIZE, (i + 1) * HAND_SIZE));
+    if (hands.every((h) => h.some((c) => c.suit === TRUMP))) {
+      s.players.forEach((p, i) => {
+        p.hand = hands[i];
+        p.bid = null;
+        p.tricks = 0;
+      });
+      return;
+    }
+  }
+  throw new Error('Could not deal a hand with a spade for every player.');
 }
 
 // ---------------------------------------------------------------- playing rules
@@ -73,13 +83,18 @@ export function winningIndex(trick) {
 }
 
 // The strict hierarchy: follow suit and win, follow suit, play a spade, discard.
-export function legalCards(hand, trick) {
+// opts.partnerId (team modes only): the id of your partner. When your partner is currently winning
+// the trick with a spade, you are not forced to beat it: any spade, higher or lower, is allowed.
+export function legalCards(hand, trick, opts = {}) {
   if (trick.length === 0) return hand.slice();
   const led = trick[0].card.suit;
-  const winning = trick[winningIndex(trick)].card;
+  const winIdx = winningIndex(trick);
+  const winning = trick[winIdx].card;
+  const partnerWinsWithSpade = !!opts.partnerId && trick[winIdx].playerId === opts.partnerId && winning.suit === TRUMP;
   const ofLed = hand.filter((c) => c.suit === led);
   if (ofLed.length) {
     if (winning.suit === led) {
+      if (partnerWinsWithSpade) return ofLed; // spades were led and my partner is winning: any spade
       const higher = ofLed.filter((c) => c.rank > winning.rank);
       return higher.length ? higher : ofLed;
     }
@@ -89,10 +104,18 @@ export function legalCards(hand, trick) {
   if (!spades.length) return hand.slice(); // discard anything
   if (winning.suit === TRUMP) {
     const higher = spades.filter((c) => c.rank > winning.rank);
-    return higher.length ? higher : hand.slice(); // no spade high enough: play anything
+    if (!higher.length) return hand.slice(); // no spade high enough: play anything
+    return partnerWinsWithSpade ? spades : higher; // never forced to overtrump my own partner
   }
   return spades; // must trump
 }
+
+// The id of a player's partner, or null in the standard (no teams) mode.
+export function partnerOf(state, player) {
+  if (!MODES[state.mode].teams) return null;
+  return state.units[player.unit].playerIds.find((id) => id !== player.id) || null;
+}
+const rulesFor = (state, player) => ({ partnerId: partnerOf(state, player) });
 
 // ---------------------------------------------------------------- scoring
 
@@ -188,7 +211,7 @@ export function legalCardIds(state, playerId) {
   if (state.phase !== 'playing') return [];
   const p = state.players[state.turnIdx];
   if (p.id !== playerId) return [];
-  return legalCards(p.hand, state.trick).map((c) => c.id);
+  return legalCards(p.hand, state.trick, rulesFor(state, p)).map((c) => c.id);
 }
 
 export function applyPlay(state, playerId, cardId) {
@@ -197,7 +220,7 @@ export function applyPlay(state, playerId, cardId) {
   if (cur.id !== playerId) return fail('It is not your turn.');
   const card = cur.hand.find((c) => c.id === cardId);
   if (!card) return fail('You do not hold that card.');
-  if (!legalCards(cur.hand, state.trick).some((c) => c.id === cardId)) {
+  if (!legalCards(cur.hand, state.trick, rulesFor(state, cur)).some((c) => c.id === cardId)) {
     return fail('That card is not allowed. Follow suit, beat the trick if you can, play a spade, or discard.');
   }
 
@@ -266,7 +289,7 @@ export function autoBid(state, playerId) {
 // Lowest legal card, keeping spades for later.
 export function autoPlay(state, playerId) {
   const p = state.players.find((x) => x.id === playerId);
-  const legal = legalCards(p.hand, state.trick);
+  const legal = legalCards(p.hand, state.trick, rulesFor(state, p));
   const weight = (c) => (c.suit === TRUMP ? 100 : 0) + c.rank;
   return legal.slice().sort((a, b) => weight(a) - weight(b))[0].id;
 }
@@ -289,6 +312,7 @@ export function viewFor(state, viewerId) {
     turn: turnPlayer ? turnPlayer.id : null,
     trickNo: state.trickNo,
     trick: state.trick.map((t) => ({ playerId: t.playerId, card: t.card })),
+    trickWinnerId: state.trick.length ? state.trick[winningIndex(state.trick)].playerId : null, // who is winning the open trick
     lastTrick: state.lastTrick,
     players: state.players.map((p, seat) => ({
       id: p.id,
@@ -319,7 +343,8 @@ export function viewFor(state, viewerId) {
           hand: me.hand,
           canBid: state.phase === 'bidding' && myTurn,
           canPlay: state.phase === 'playing' && myTurn,
-          legalIds: state.phase === 'playing' && myTurn ? legalCards(me.hand, state.trick).map((c) => c.id) : [],
+          partnerId: partnerOf(state, me),
+          legalIds: state.phase === 'playing' && myTurn ? legalCards(me.hand, state.trick, rulesFor(state, me)).map((c) => c.id) : [],
         }
       : null,
   };

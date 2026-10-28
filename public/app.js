@@ -10,8 +10,8 @@ const RANK_LABEL = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
 const RANK_WORD = { 11: 'Jack', 12: 'Queen', 13: 'King', 14: 'Ace' };
 const MODES = {
   solo4: { label: 'Standard', seats: 4, teams: false, blurb: '4 players, everyone for themselves.' },
-  team4: { label: 'Partnership', seats: 4, teams: true, blurb: '4 players in 2 teams. Partners sit opposite and their calls add up.' },
-  team8: { label: 'Partnership, 8 players', seats: 8, teams: true, blurb: '8 players in 4 teams of two, with two decks shuffled together.' },
+  team4: { label: 'Partnership', seats: 4, teams: true, blurb: '4 players in 2 teams. Partners sit opposite and their calls add up. You never have to overtrump your partner.' },
+  team8: { label: 'Partnership, 8 players', seats: 8, teams: true, blurb: '8 players in 4 teams of two, with two decks shuffled together. You never have to overtrump your partner.' },
 };
 const TEAM_LETTERS = ['A', 'B', 'C', 'D'];
 const HUES = [340, 18, 44, 150, 186, 212, 266, 300];
@@ -516,7 +516,10 @@ function updateStatus() {
   if (g.phase === 'ended') text = 'Game over';
   else if (g.phase === 'roundEnd') text = `Round ${g.round} is complete.`;
   else if (you && you.canBid) text = 'Your call: how many tricks will you win?';
-  else if (you && you.canPlay) text = g.trick.length === 0 ? 'You lead. Play any card.' : 'Your turn. The cards you may play are lit.';
+  else if (you && you.canPlay) {
+    text = g.trick.length === 0 ? 'You lead. Play any card.' : 'Your turn. The cards you may play are lit.';
+    if (g.trickWinnerId && g.trickWinnerId === you.partnerId) text += ' Your partner is winning this trick.';
+  }
   else if (g.phase === 'bidding') text = `${nameOf(g.turn)} is calling…`;
   else text = `${nameOf(g.turn)} is playing…`;
   els.status.innerHTML = `${esc(text)}<span class="timer" id="timerText"></span>`;

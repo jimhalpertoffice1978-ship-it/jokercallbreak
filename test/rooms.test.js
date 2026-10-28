@@ -239,9 +239,14 @@ test('leaving mid-game hands your seat to the computer; the last person out clos
   assert.equal(m.act(tokens[0], { type: 'leave' }).ok, true);
   assert.equal(m.snapshot(tokens[0]).ok, false);
   assert.equal(snap(m, tokens[1]).hostId, snap(m, tokens[1]).youId); // host passes on
-  for (let i = 0; i < 30; i++) { clock.t += 10; m.tick(); }
+  // The remaining person calls when it is their turn; everyone else, including the empty seat, is played by the computer.
+  for (let i = 0; i < 400 && snap(m, tokens[1]).game.phase === 'bidding'; i++) {
+    if (snap(m, tokens[1]).game.you.canBid) m.act(tokens[1], { type: 'bid', amount: 2 });
+    else { clock.t += 10; m.tick(); }
+  }
   const g = snap(m, tokens[1]).game;
-  assert.ok(g.players.some((p) => p.bid !== null) || g.phase === 'playing');
+  assert.equal(g.phase, 'playing');
+  assert.ok(g.players.every((p) => p.bid !== null), 'the empty seat called too');
   m.act(tokens[1], { type: 'leave' });
   assert.equal(m.rooms.has(code), false);
 });
