@@ -1,0 +1,38 @@
+PUTTING JOKERCALLBREAK ONLINE FOR FREE (Render)
+================================================
+
+This is a NEW website, separate from JokerBluff: it gets its own GitHub repository
+and its own Render service, so the two games never affect each other.
+
+Result: a permanent link like https://jokercallbreak.onrender.com for your friends.
+
+Things to know first
+- The free server sleeps after 15 minutes with no activity. The next person to open the
+  link waits about a minute while it wakes up.
+- Games live in the server's memory. If Render restarts the server, or you upload a new
+  version, running games are lost and players create a new room.
+
+PART A - Put the files on GitHub (browser only)
+1. On github.com click the + at the top right, then "New repository".
+   Name it jokercallbreak and click "Create repository".
+2. Click the link "uploading an existing file".
+3. Open your jokercallbreak folder on your computer. Select EVERYTHING inside it
+   (the src, public and test folders, package.json, render.yaml and the .txt files)
+   and drag it into the GitHub page. Do NOT drag the outer folder itself.
+4. Wait for the upload to finish, then click "Commit changes".
+
+PART B - Start it on Render
+1. Go to render.com and sign in with GitHub.
+2. Click New, then Web Service, and choose the jokercallbreak repository.
+3. Check these settings:
+     Runtime / Language ... Node
+     Build Command ........ npm install
+     Start Command ........ npm start        <- make sure it says npm start, not npm install
+     Instance Type ........ Free
+     Health Check Path .... /healthz         (under Advanced)
+4. Click Create Web Service and wait a few minutes. When it says "Live", open the link at
+   the top. That is your game's permanent address.
+
+UPDATING LATER
+- On GitHub, open the file to change, click the pencil icon, edit, and click "Commit changes"
+  (or use Add file > Upload files to replace files). Render redeploys by itself.
